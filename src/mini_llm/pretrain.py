@@ -30,8 +30,6 @@ EVAL_WINDOWS = 1024
 
 HPARAMS = {
     "34M": {"lr_max": 5e-4, "lr_cont": 3e-4, "lr_min": 5e-5, "warmup": 200},
-    # Same recipe as 34M: same architecture, shared embeddings stay a smaller
-    # share of the budget at 32k. 40M runs 131,072 tokens/step (64x4x512).
     "40M": {"lr_max": 5e-4, "lr_cont": 3e-4, "lr_min": 5e-5, "warmup": 1000},
     "70M": {"lr_max": 6e-4, "lr_cont": 3e-4, "lr_min": 6e-5, "warmup": 500},
     "150M": {"lr_max": 5e-4, "lr_cont": 3e-4, "lr_min": 5e-5, "warmup": 1000},
@@ -48,23 +46,11 @@ def default_batch(dev, size="34M"):
                 return (64, 4) if size in BIG_BATCH_SIZES else (64, 2)
         except Exception:
             pass
-        # Smaller CUDA GPUs, and documented OOM fallback for 150M on 80 GB:
-        # batch=32, accum=8 keeps the same effective batch as (64, 4).
         return (32, 8) if size in BIG_BATCH_SIZES else (32, 4)
     return 32, 4
 
 
 def check_data_matches(meta_path, cfg, tok_path=None, train_len=None, val_len=None):
-    """Abort if tokenized data was made for another vocab/tokenizer.
-
-    tok_path defaults to the lineage tokenizer of cfg.vocab
-    (models/16k/tok.json, models/32k/tok.json, ...).
-    When the .bin lengths are given, they must match the token counts recorded
-    by prep: a 16k-tokenized train.bin sitting next to a 32k meta.json would
-    otherwise pass every other check (its token ids all fit in 32k).
-    Old data directories have no meta.json: only warn here; the caller still
-    scans the maximum token id.
-    """
     import json
 
     if tok_path is None:
@@ -127,8 +113,6 @@ def pretrain(steps=5000, resume=False, init=None, size="34M", batch=None, accum=
         for s in ("train", "val")
     }
     train, val = data["train"], data["val"]
-    # meta.json is not trusted on its own: the .bin files must be consistent
-    # with it, and the token ids must fit the preset, meta.json or not.
     check_data_matches(DATA_DIR / "meta.json", cfg, train_len=len(train), val_len=len(val))
     check_ids_fit(train, val, cfg)
     n_win = (len(train) - 1) // cfg.ctx
@@ -185,7 +169,6 @@ def pretrain(steps=5000, resume=False, init=None, size="34M", batch=None, accum=
     lr_peak = lr_max if phase_start == 0 else lr_cont
     if lr is not None and phase_start == 0:
         lr_peak = lr
-    # Warmup is at most 5% of the run, so short runs (smoke test) still reach the peak LR.
     warmup = min(warmup, max(1, (steps - phase_start) // 20))
 
     toks_step = batch * accum * cfg.ctx
@@ -272,8 +255,6 @@ def pretrain(steps=5000, resume=False, init=None, size="34M", batch=None, accum=
         opt.step()
         opt.zero_grad(set_to_none=True)
 
-        # The first step includes torch.compile: start timing after it so that the
-        # throughput and the ETA only reflect steady-state speed.
         if step == start:
             t_last, done_last = time.time(), step + 1
         if step % 50 == 0:

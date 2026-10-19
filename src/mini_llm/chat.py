@@ -14,11 +14,6 @@ MAX_NEW_TOKENS = 256
 
 
 def reply(model, tok, eos, dev, question, ctx=None):
-    """Answer one question on its own, with no conversation memory.
-
-    Earlier turns make these small models anchor on their own answers, so the
-    question alone is encoded (long questions keep the last ctx - 1 tokens).
-    """
     if ctx is None:
         ctx = getattr(getattr(model, "c", None), "ctx", 512)
     ids = tok.encode(format_prompt(question)).ids[-(ctx - 1):]

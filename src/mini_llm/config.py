@@ -9,7 +9,6 @@ MODELS_DIR = ROOT / "models"
 
 
 def tokenizer_dir(vocab):
-    """Lineage folder named after the tokenizer vocabulary: models/16k/, models/32k/..."""
     return MODELS_DIR / f"{vocab // 1024}k"
 
 
@@ -44,19 +43,11 @@ def resolve_device(name):
 
 
 def size_millions(n_params):
-    """Model size tag in millions: total params rounded to the nearest 10M.
-
-    42,476,032 -> 40, 69,975,680 -> 70, 152,596,224 -> 150. The older 34M
-    checkpoints predate this rule (34,087,424 would give 30) and keep their
-    historical name.
-    """
     return round(n_params / 1e7) * 10
 
 
 PRESETS = {
     "34M": Cfg(),
-    # The 34M architecture on the 32k lineage: non-embedding parameters are
-    # identical (25,698,816), the 32,768-token embedding adds 8.4M.
     "40M": Cfg(vocab=32768),
     "70M": Cfg(dim=640, layers=12, heads=10, ffn=1728),
     "150M": Cfg(dim=768, layers=18, heads=12, ffn=2048, vocab=32768),

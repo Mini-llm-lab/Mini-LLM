@@ -5,15 +5,12 @@ cd "$(dirname "$0")/.."
 SIZE=40M
 STEPS=35096
 PREP_MILLIONS=4600
-# 35096 x 131072 tokens/step = ~4.6B tokens, ~108 tokens/param.
 
-# Expected tokenizer vocab for the current SIZE (16k lineage vs 32k lineage).
 case "$SIZE" in
   40M|150M) EXPECT_VOCAB=32768 ;;
   *) EXPECT_VOCAB=16384 ;;
 esac
 
-# The base run this SIZE/STEPS pair produces (same formula as pretrain.py).
 BASE="models/$((EXPECT_VOCAB / 1024))k/mini-llm-base-${SIZE}-${STEPS}steps.pt"
 
 export UV_CACHE_DIR=/workspace/.uv-cache
@@ -47,12 +44,11 @@ prep)
     fi
   fi
   if [ "$EXPECT_VOCAB" = "32768" ]; then
-    vocab_args="--vocab 32768 --tokenizer-docs 300000"
+    vocab_args=(--vocab 32768 --tokenizer-docs 300000)
   else
-    vocab_args=""
+    vocab_args=()
   fi
-  # shellcheck disable=SC2086
-  setsid nohup uv run prep "$PREP_MILLIONS" $vocab_args >"$LOGDIR/prep.log" 2>&1 < /dev/null &
+  setsid nohup uv run prep "$PREP_MILLIONS" "${vocab_args[@]}" >"$LOGDIR/prep.log" 2>&1 < /dev/null &
   echo "prep started -> $LOGDIR/prep.log"
   ;;
 smoke)
@@ -69,15 +65,10 @@ train)
   echo "train started (${args[*]}) -> $LOGDIR/train.log"
   ;;
 sft)
-  # The base is passed explicitly: automatic selection would pick the model with
-  # the highest step count, which is not necessarily this SIZE (70M/150M runs).
   setsid nohup uv run sft 2 "$BASE" --device cuda >"$LOGDIR/sft.log" 2>&1 < /dev/null &
   echo "sft started (2 epochs on $BASE) -> $LOGDIR/sft.log"
   ;;
 eval)
-  # Protocol v2: reported numbers run here, on the pod GPU. `mini-eval` refuses
-  # to run anywhere but Linux, and requires a clean Mini-Eval tree plus the
-  # sha256 of the new checkpoint filled in its models.yaml.
   EVAL_DIR="${MINI_EVAL_DIR:-../Mini-Eval}"
   MODELS=(mini-llm-40M-35096steps mini-llm-150M-34332steps mini-llm-70M-22000steps
           mini-llm-34M-12000steps SmolLM2-135M pythia-70m-step143000)
@@ -102,7 +93,6 @@ pack)
   files=("$TOK" data/meta.json)
   while IFS= read -r f; do files+=("$f"); done < <(find models -maxdepth 2 -name "mini-llm-base-${SIZE}-*.pt" ! -name '*.state.pt' ! -name '*.at*.pt' | sort)
   while IFS= read -r f; do files+=("$f"); done < <(find models -maxdepth 2 -name "mini-llm-assistant-${SIZE}.pt" | sort)
-  # Milestones (~0.6 GB each, under models/<lineage>/milestones/) are excluded by default to keep the archive small.
   tar -cf /workspace/export.tar "${files[@]}"
   ls -lh /workspace/export.tar
   echo "runpodctl send /workspace/export.tar"

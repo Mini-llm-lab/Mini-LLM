@@ -59,7 +59,6 @@ def export(checkpoint=None, out=None, verify=True, base=False):
             raise SystemExit(f"weight mismatch: missing={missing} unexpected={unexpected}")
 
     if out is None:
-        # Repo-root exports/, even though checkpoints live in models/<lineage>/.
         out = MODELS_DIR.parent / "exports" / f"{ckpt.stem}-hf"
     out = Path(out)
     out.mkdir(parents=True, exist_ok=True)

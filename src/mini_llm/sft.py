@@ -132,7 +132,6 @@ def sft(epochs=3, base=None, resume=False, device="auto", bs=None, accum=None):
         return x.to(dev), y.to(dev)
 
     dbs, dacc = (8, 2) if dev == "cuda" else (2, 8)
-    # Documented OOM fallback for 150M on CUDA: --bs 4 --accum 4.
     bs = dbs if bs is None else bs
     accum = dacc if accum is None else accum
     per_epoch = len(train) // (bs * accum)
