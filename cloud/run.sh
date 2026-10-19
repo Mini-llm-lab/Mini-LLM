@@ -11,7 +11,7 @@ case "$SIZE" in
   *) EXPECT_VOCAB=16384 ;;
 esac
 
-BASE="models/$((EXPECT_VOCAB / 1024))k/mini-llm-base-${SIZE}-${STEPS}steps.pt"
+BASE="models/$((EXPECT_VOCAB / 1024))k/${SIZE}/mini-llm-base-${SIZE}-${STEPS}steps.pt"
 
 export UV_CACHE_DIR=/workspace/.uv-cache
 export UV_LINK_MODE=copy
@@ -53,12 +53,12 @@ prep)
   ;;
 smoke)
   uv run pretrain 100 --size "$SIZE" --device cuda --save-every 50 --milestone-every 1000000
-  rm -f models/*/mini-llm-base-*-100steps*.pt
+  rm -f models/*/*/mini-llm-base-*-100steps*.pt
   echo "smoke done, note the tok/s above"
   ;;
 train)
   args=(uv run pretrain "$STEPS" --size "$SIZE" --device cuda)
-  if compgen -G "models/*/mini-llm-base-*-${STEPS}steps.state.pt" > /dev/null; then
+  if compgen -G "models/*/*/mini-llm-base-*-${STEPS}steps.state.pt" > /dev/null; then
     args+=(--resume)
   fi
   setsid nohup "${args[@]}" >"$LOGDIR/train.log" 2>&1 < /dev/null &
@@ -71,7 +71,7 @@ sft)
 eval)
   EVAL_DIR="${MINI_EVAL_DIR:-../Mini-Eval}"
   MODELS=(mini-llm-40M-35096steps mini-llm-150M-34332steps mini-llm-70M-22000steps
-          mini-llm-34M-12000steps SmolLM2-135M pythia-70m-step143000)
+          SmolLM2-135M pythia-160m-step143000 pythia-70m-step143000)
   setsid nohup bash -c "cd '$EVAL_DIR' && uv run mini-eval check mini-llm-40M-35096steps --device cuda && uv run mini-eval run small_lm ${MODELS[*]} --device cuda --require-clean" \
     >"$LOGDIR/eval.log" 2>&1 < /dev/null &
   echo "eval started (${#MODELS[@]} models, protocol v2) -> $LOGDIR/eval.log"
@@ -83,16 +83,16 @@ status)
     echo "== $f =="
     tail -5 "$f"
   done
-  echo "== models/ =="; ls -lh models/ models/*/ || true
-  echo "== milestones =="; ls -lh models/*/milestones/ || true
+  echo "== models/ =="; ls -lh models/ models/*/ models/*/*/ || true
+  echo "== milestones =="; ls -lh models/*/*/milestones/ || true
   echo "== data/ =="; ls -lh data/ || true
   df -h /workspace
   ;;
 pack)
   TOK="models/$((EXPECT_VOCAB / 1024))k/tok.json"
   files=("$TOK" data/meta.json)
-  while IFS= read -r f; do files+=("$f"); done < <(find models -maxdepth 2 -name "mini-llm-base-${SIZE}-*.pt" ! -name '*.state.pt' ! -name '*.at*.pt' | sort)
-  while IFS= read -r f; do files+=("$f"); done < <(find models -maxdepth 2 -name "mini-llm-assistant-${SIZE}.pt" | sort)
+  while IFS= read -r f; do files+=("$f"); done < <(find models -maxdepth 3 -name "mini-llm-base-${SIZE}-*.pt" ! -name '*.state.pt' ! -name '*.at*.pt' | sort)
+  while IFS= read -r f; do files+=("$f"); done < <(find models -maxdepth 3 -name "mini-llm-assistant-${SIZE}.pt" | sort)
   tar -cf /workspace/export.tar "${files[@]}"
   ls -lh /workspace/export.tar
   echo "runpodctl send /workspace/export.tar"

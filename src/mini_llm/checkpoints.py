@@ -69,4 +69,9 @@ def save_checkpoint(path, model, cfg, **meta):
 
 
 def load_tokenizer(ckpt_path):
-    return Tokenizer.from_file(str(Path(ckpt_path).parent / "tok.json"))
+    parent = Path(ckpt_path).parent
+    for folder in (parent, parent.parent):
+        candidate = folder / "tok.json"
+        if candidate.exists():
+            return Tokenizer.from_file(str(candidate))
+    sys.exit(f"tok.json not found next to {ckpt_path} or one folder up")

@@ -18,9 +18,9 @@ from mini_llm.checkpoints import (
 from mini_llm.config import (
     DATA_DIR,
     get_preset,
+    model_dir,
     resolve_device,
     size_millions,
-    tokenizer_dir,
     tokenizer_path,
 )
 from mini_llm.model import LLM
@@ -121,9 +121,10 @@ def pretrain(steps=5000, resume=False, init=None, size="34M", batch=None, accum=
 
     model = LLM(cfg).to(dev)
     n_params = sum(p.numel() for p in model.parameters())
-    out_dir = tokenizer_dir(cfg.vocab)
+    tag = f"{size_millions(n_params)}M"
+    out_dir = model_dir(cfg.vocab, tag)
     out_dir.mkdir(parents=True, exist_ok=True)
-    stem = f"mini-llm-base-{size_millions(n_params)}M-{steps}steps"
+    stem = f"mini-llm-base-{tag}-{steps}steps"
     weights_path = out_dir / f"{stem}.pt"
     state_path = out_dir / f"{stem}.state.pt"
     print(f"device: {dev}")

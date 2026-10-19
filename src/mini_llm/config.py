@@ -16,6 +16,10 @@ def tokenizer_path(vocab):
     return tokenizer_dir(vocab) / "tok.json"
 
 
+def model_dir(vocab, tag):
+    return tokenizer_dir(vocab) / tag
+
+
 @dataclass
 class Cfg:
     vocab: int = 16384

@@ -75,7 +75,7 @@ else
   df -h .
 fi
 ls -lh data/ 2>/dev/null || say "data/: absent"
-ls -lh models/ models/*/ 2>/dev/null || true
+ls -lh models/ models/*/ models/*/*/ 2>/dev/null || true
 
 if [ "$fail" -ne 0 ]; then
   echo "preflight: FAIL - prep or pretrain would refuse. Fix above, then re-run $0." >&2
