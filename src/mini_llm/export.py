@@ -5,6 +5,7 @@ from pathlib import Path
 import torch
 
 from mini_llm.checkpoints import load_model, load_tokenizer, resolve_checkpoint
+from mini_llm.config import MODELS_DIR
 from mini_llm.configuration_mini_llm import MiniLlmConfig
 from mini_llm.modeling_mini_llm import MiniLlmForCausalLM
 from mini_llm.prompt import format_prompt
@@ -17,7 +18,7 @@ CHAT_TEMPLATE = (
 )
 
 
-def build_tokenizer(tok_path):
+def build_tokenizer(tok_path, chat_template=True):
     from transformers import PreTrainedTokenizerFast
 
     tok = PreTrainedTokenizerFast(
@@ -27,11 +28,12 @@ def build_tokenizer(tok_path):
         unk_token=None,
         bos_token=None,
     )
-    tok.chat_template = CHAT_TEMPLATE
+    if chat_template:
+        tok.chat_template = CHAT_TEMPLATE
     return tok
 
 
-def export(checkpoint=None, out=None, verify=True):
+def export(checkpoint=None, out=None, verify=True, base=False):
     ckpt = resolve_checkpoint(checkpoint)
     print(f"checkpoint: {ckpt.name}")
     dev = "cpu"
@@ -57,7 +59,8 @@ def export(checkpoint=None, out=None, verify=True):
             raise SystemExit(f"weight mismatch: missing={missing} unexpected={unexpected}")
 
     if out is None:
-        out = ckpt.parent.parent / "exports" / f"{ckpt.stem}-hf"
+        # Repo-root exports/, even though checkpoints live in models/<lineage>/.
+        out = MODELS_DIR.parent / "exports" / f"{ckpt.stem}-hf"
     out = Path(out)
     out.mkdir(parents=True, exist_ok=True)
 
@@ -75,21 +78,22 @@ def export(checkpoint=None, out=None, verify=True):
 
     hf.save_pretrained(str(out), safe_serialization=True)
 
-    tok = build_tokenizer(tok_path)
+    tok = build_tokenizer(tok_path, chat_template=not base)
     tok.save_pretrained(str(out))
 
-    from transformers import GenerationConfig
+    if not base:
+        from transformers import GenerationConfig
 
-    gen = GenerationConfig(
-        do_sample=True,
-        temperature=0.5,
-        top_k=40,
-        repetition_penalty=1.15,
-        max_new_tokens=256,
-        eos_token_id=eos,
-        pad_token_id=eos,
-    )
-    gen.save_pretrained(str(out))
+        gen = GenerationConfig(
+            do_sample=True,
+            temperature=0.5,
+            top_k=40,
+            repetition_penalty=1.15,
+            max_new_tokens=256,
+            eos_token_id=eos,
+            pad_token_id=eos,
+        )
+        gen.save_pretrained(str(out))
 
     src_dir = Path(__file__).resolve().parent
     for name in ("configuration_mini_llm.py", "modeling_mini_llm.py"):
@@ -122,8 +126,13 @@ def main():
     ap.add_argument("checkpoint", nargs="?")
     ap.add_argument("--out")
     ap.add_argument("--no-verify", action="store_true")
+    ap.add_argument(
+        "--base",
+        action="store_true",
+        help="base model: no chat template and no sampling defaults (an assistant is not attached)",
+    )
     args = ap.parse_args()
-    export(args.checkpoint, args.out, verify=not args.no_verify)
+    export(args.checkpoint, args.out, verify=not args.no_verify, base=args.base)
 
 
 if __name__ == "__main__":

@@ -2,16 +2,19 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-SIZE=150M
-STEPS=34332
+SIZE=40M
+STEPS=35096
 PREP_MILLIONS=4600
-# 34332 x 131072 tokens/step = ~4.5B tokens, ~29 tokens/param.
+# 35096 x 131072 tokens/step = ~4.6B tokens, ~108 tokens/param.
 
 # Expected tokenizer vocab for the current SIZE (16k lineage vs 32k lineage).
 case "$SIZE" in
-  150M) EXPECT_VOCAB=32768 ;;
+  40M|150M) EXPECT_VOCAB=32768 ;;
   *) EXPECT_VOCAB=16384 ;;
 esac
+
+# The base run this SIZE/STEPS pair produces (same formula as pretrain.py).
+BASE="models/$((EXPECT_VOCAB / 1024))k/mini-llm-base-${SIZE}-${STEPS}steps.pt"
 
 export UV_CACHE_DIR=/workspace/.uv-cache
 export UV_LINK_MODE=copy
@@ -32,6 +35,7 @@ setup)
   nvidia-smi
   uv run python -c "import sys, torch; sys.exit(0 if torch.cuda.is_available() else 1)" \
     || { echo "CUDA not available" >&2; exit 1; }
+  SIZE="$SIZE" cloud/preflight.sh
   ;;
 prep)
   if [ -f data/meta.json ]; then
@@ -65,8 +69,21 @@ train)
   echo "train started (${args[*]}) -> $LOGDIR/train.log"
   ;;
 sft)
-  setsid nohup uv run sft 2 --device cuda >"$LOGDIR/sft.log" 2>&1 < /dev/null &
-  echo "sft started -> $LOGDIR/sft.log"
+  # The base is passed explicitly: automatic selection would pick the model with
+  # the highest step count, which is not necessarily this SIZE (70M/150M runs).
+  setsid nohup uv run sft 2 "$BASE" --device cuda >"$LOGDIR/sft.log" 2>&1 < /dev/null &
+  echo "sft started (2 epochs on $BASE) -> $LOGDIR/sft.log"
+  ;;
+eval)
+  # Protocol v2: reported numbers run here, on the pod GPU. `mini-eval` refuses
+  # to run anywhere but Linux, and requires a clean Mini-Eval tree plus the
+  # sha256 of the new checkpoint filled in its models.yaml.
+  EVAL_DIR="${MINI_EVAL_DIR:-../Mini-Eval}"
+  MODELS=(mini-llm-40M-35096steps mini-llm-150M-34332steps mini-llm-70M-22000steps
+          mini-llm-34M-12000steps SmolLM2-135M pythia-70m-step143000)
+  setsid nohup bash -c "cd '$EVAL_DIR' && uv run mini-eval check mini-llm-40M-35096steps --device cuda && uv run mini-eval run small_lm ${MODELS[*]} --device cuda --require-clean" \
+    >"$LOGDIR/eval.log" 2>&1 < /dev/null &
+  echo "eval started (${#MODELS[@]} models, protocol v2) -> $LOGDIR/eval.log"
   ;;
 status)
   nvidia-smi || true
@@ -91,7 +108,7 @@ pack)
   echo "runpodctl send /workspace/export.tar"
   ;;
 *)
-  echo "usage: $0 {setup|prep|smoke|train|sft|status|pack}"
+  echo "usage: $0 {setup|prep|smoke|train|sft|eval|status|pack}"
   exit 1
   ;;
 esac

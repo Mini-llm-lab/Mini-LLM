@@ -9,12 +9,19 @@ from mini_llm.model import LLM
 
 
 def test_preset_param_counts_frozen():
-    # 34M/70M presets must never change; 150M is the new ~152.6M target.
+    # 34M/70M presets must never change; 40M and 150M are the 32k lineage.
     for name, expected in [("34M", 34_087_424), ("70M", 69_975_680)]:
         m = LLM(get_preset(name))
         assert sum(p.numel() for p in m.parameters()) == expected
         del m
         gc.collect()
+    m = LLM(get_preset("40M"))
+    n = sum(p.numel() for p in m.parameters())
+    assert m.c.vocab == 32768
+    assert n == 42_476_032
+    assert n - 32768 * 512 == 25_698_816  # same non-embedding count as 34M
+    del m
+    gc.collect()
     m = LLM(get_preset("150M"))
     n = sum(p.numel() for p in m.parameters())
     assert m.c.vocab == 32768
@@ -37,6 +44,7 @@ def test_resolve_device():
 
 
 def test_size_millions_rounds_to_tens():
+    assert size_millions(42_476_032) == 40
     assert size_millions(69_975_680) == 70
     assert size_millions(152_596_224) == 150
 
@@ -64,6 +72,13 @@ def test_data_vocab_guard(tmp_path):
 
     meta.write_text(json.dumps({"vocab": 32768, "tokenizer_sha256": h}))
     check_data_matches(meta, cfg, tok)  # must not raise
+
+    # .bin lengths must match what meta.json records (a 16k-tokenized file next
+    # to a 32k meta.json passes the vocab and hash checks otherwise).
+    meta.write_text(json.dumps({"vocab": 32768, "tokenizer_sha256": h, "train_tokens": 99, "val_tokens": 2}))
+    with pytest.raises(SystemExit):
+        check_data_matches(meta, cfg, tok, train_len=3, val_len=2)
+    check_data_matches(meta, cfg, tok, train_len=99, val_len=2)  # must not raise
 
     train = tmp_path / "train.bin"
     val = tmp_path / "val.bin"

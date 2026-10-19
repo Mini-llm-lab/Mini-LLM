@@ -1,7 +1,8 @@
 # Mini-LLM
 
-Small assistants (~34M and ~70M parameters) trained **entirely from scratch** with
-PyTorch: no pretrained weights, no existing model.
+Small assistants (~40M and ~150M parameters on the 32k tokenizer lineage, ~34M and
+~70M on the earlier 16k lineage) trained **entirely from scratch** with PyTorch: no
+pretrained weights, no existing model.
 
 Training runs on NVIDIA GPUs (CUDA).
 
