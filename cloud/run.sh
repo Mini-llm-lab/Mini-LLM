@@ -58,7 +58,11 @@ prep)
   echo "prep started -> $LOGDIR/prep.log"
   ;;
 smoke)
-  uv run pretrain 100 --size "$SIZE" --device cuda --save-every 50 --milestone-every 1000000
+  args=(uv run pretrain 100 --size "$SIZE" --device cuda --save-every 50 --milestone-every 1000000)
+  if [ -n "$TEACHER" ]; then
+    args+=(--teacher "$TEACHER" --kd-weight "$KD_WEIGHT" --kd-temp "$KD_TEMP")
+  fi
+  "${args[@]}"
   rm -f models/*/*/mini-llm-base-*-100steps*.pt
   echo "smoke done, note the tok/s above"
   ;;
