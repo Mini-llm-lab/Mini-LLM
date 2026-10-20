@@ -4,7 +4,12 @@ from pathlib import Path
 
 import torch
 
-from mini_llm.checkpoints import load_model, load_tokenizer, resolve_checkpoint
+from mini_llm.checkpoints import (
+    load_model,
+    load_tokenizer,
+    resolve_checkpoint,
+    tokenizer_file,
+)
 from mini_llm.config import MODELS_DIR
 from mini_llm.configuration_mini_llm import MiniLlmConfig
 from mini_llm.modeling_mini_llm import MiniLlmForCausalLM
@@ -39,7 +44,7 @@ def export(checkpoint=None, out=None, verify=True, base=False):
     dev = "cpu"
     native, cfg = load_model(str(ckpt), dev)
     native.eval()
-    tok_path = ckpt.parent / "tok.json"
+    tok_path = tokenizer_file(ckpt)
     raw_tok = load_tokenizer(str(ckpt))
     eos = raw_tok.token_to_id("<eos>")
 
