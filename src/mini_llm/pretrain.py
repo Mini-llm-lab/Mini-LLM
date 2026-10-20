@@ -6,9 +6,11 @@ from contextlib import nullcontext
 
 import numpy as np
 import torch
+import torch.nn.functional as F
 
 from mini_llm.checkpoints import (
     cfg_from,
+    load_model,
     rank,
     read_checkpoint,
     resolve_checkpoint,
@@ -36,6 +38,32 @@ HPARAMS = {
 }
 
 BIG_BATCH_SIZES = ("40M", "150M")
+KD_CHUNK = 4096
+
+
+def kd_loss(logits_s, logits_t, temp, chunk=KD_CHUNK):
+    ls = logits_s.reshape(-1, logits_s.size(-1))
+    lt = logits_t.reshape(-1, logits_t.size(-1))
+    total = ls.new_zeros((), dtype=torch.float32)
+    for i in range(0, ls.size(0), chunk):
+        s = ls[i : i + chunk].float() / temp
+        t = lt[i : i + chunk].float() / temp
+        total = total + F.kl_div(
+            F.log_softmax(s, dim=-1),
+            F.log_softmax(t, dim=-1),
+            reduction="sum",
+            log_target=True,
+        )
+    return total * temp**2 / ls.size(0)
+
+
+def validate_teacher(tcfg, cfg):
+    if tcfg.vocab != cfg.vocab:
+        sys.exit(
+            f"The teacher predicts {tcfg.vocab} tokens but the {cfg.vocab} lineage needs {cfg.vocab}."
+        )
+    if tcfg.ctx < cfg.ctx:
+        sys.exit(f"The teacher context is {tcfg.ctx} but the student needs {cfg.ctx}.")
 
 
 def default_batch(dev, size="34M"):
@@ -93,13 +121,19 @@ def check_ids_fit(train, val, cfg):
 
 
 def pretrain(steps=5000, resume=False, init=None, size="34M", batch=None, accum=None, lr=None,
-             save_every=None, milestone_every=None, device="auto"):
+             save_every=None, milestone_every=None, device="auto", teacher=None,
+             kd_weight=0.5, kd_temp=2.0):
     cfg = get_preset(size)
     hp = HPARAMS[size]
     lr_max, lr_cont, lr_min, warmup = hp["lr_max"], hp["lr_cont"], hp["lr_min"], hp["warmup"]
     dev = resolve_device(device)
     if dev == "cuda":
         torch.set_float32_matmul_precision("high")
+    if teacher is not None:
+        if not 0.0 < kd_weight <= 1.0:
+            sys.exit("--kd-weight must be in (0, 1]")
+        if kd_temp <= 0:
+            sys.exit("--kd-temp must be > 0")
     if save_every is None:
         save_every = 1000
     if milestone_every is None:
@@ -120,6 +154,18 @@ def pretrain(steps=5000, resume=False, init=None, size="34M", batch=None, accum=
         sys.exit(f"train.bin too small ({len(train)} tokens) for ctx {cfg.ctx}")
 
     model = LLM(cfg).to(dev)
+    teacher_model, kd = None, None
+    if teacher is not None:
+        teacher_path = resolve_checkpoint(teacher)
+        if not teacher_path.exists():
+            sys.exit(f"Teacher checkpoint not found: {teacher_path}")
+        teacher_model, teacher_cfg = load_model(teacher_path, dev)
+        validate_teacher(teacher_cfg, cfg)
+        teacher_model.eval()
+        for p in teacher_model.parameters():
+            p.requires_grad_(False)
+        kd = {"teacher": teacher_path.name, "weight": kd_weight, "temp": kd_temp}
+        print(f"teacher: {teacher_path.name} | kd weight {kd_weight:g} | temp {kd_temp:g}")
     n_params = sum(p.numel() for p in model.parameters())
     tag = f"{size_millions(n_params)}M"
     out_dir = model_dir(cfg.vocab, tag)
@@ -147,6 +193,10 @@ def pretrain(steps=5000, resume=False, init=None, size="34M", batch=None, accum=
         state = read_checkpoint(state_path, dev)
         if state["total_steps"] != steps:
             sys.exit(f"The saved run targets {state['total_steps']} steps, not {steps}")
+        if state.get("kd") != kd:
+            sys.exit(
+                "The saved run used different distillation settings (--teacher/--kd-weight/--kd-temp)"
+            )
         model.load_state_dict(state["model"])
         opt.load_state_dict(state["optimizer"])
         start = state["step"]
@@ -239,12 +289,23 @@ def pretrain(steps=5000, resume=False, init=None, size="34M", batch=None, accum=
         for g in opt.param_groups:
             g["lr"] = cur_lr
         step_loss = torch.zeros((), device=dev)
+        step_ce = torch.zeros((), device=dev)
+        step_kd = torch.zeros((), device=dev)
         for _ in range(accum):
             x, y = get_train_batch()
             with amp:
-                loss = cmodel(x, y)[1] / accum
+                logits, ce = cmodel(x, y)
+            if teacher_model is not None:
+                with torch.no_grad(), amp:
+                    tlogits = teacher_model(x)[0]
+                batch_kd = kd_loss(logits, tlogits, kd_temp)
+                loss = ((1 - kd_weight) * ce + kd_weight * batch_kd) / accum
+                step_kd += batch_kd.detach() / accum
+            else:
+                loss = ce / accum
             loss.backward()
             step_loss += loss.detach()
+            step_ce += ce.detach() / accum
         gnorm = torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
         loss_val = step_loss.item()
         gnorm_val = gnorm.item()
@@ -261,6 +322,11 @@ def pretrain(steps=5000, resume=False, init=None, size="34M", batch=None, accum=
         if step % 50 == 0:
             now = time.time()
             head = f"step {step:5d}/{steps} | loss {loss_val:.3f} | gnorm {gnorm_val:.2f} | lr {cur_lr:.2e}"
+            if teacher_model is not None:
+                head = (
+                    f"step {step:5d}/{steps} | loss {loss_val:.3f} | ce {step_ce.item():.3f} "
+                    f"| kd {step_kd.item():.3f} | gnorm {gnorm_val:.2f} | lr {cur_lr:.2e}"
+                )
             if step == start:
                 print(f"{head} | warm-up step (compile), throughput from the next log | {now - t0:.0f}s", flush=True)
             else:
@@ -275,7 +341,7 @@ def pretrain(steps=5000, resume=False, init=None, size="34M", batch=None, accum=
             save_checkpoint(
                 state_path, model, cfg,
                 kind="base", step=done, total_steps=steps, val_loss=val_loss,
-                phase_start=phase_start, optimizer=opt.state_dict(),
+                phase_start=phase_start, optimizer=opt.state_dict(), kd=kd,
             )
         if done % milestone_every == 0 and done != steps:
             mile_dir = out_dir / "milestones"
@@ -283,12 +349,13 @@ def pretrain(steps=5000, resume=False, init=None, size="34M", batch=None, accum=
             save_checkpoint(
                 mile_dir / f"{stem}.at{done}.pt", model, cfg,
                 kind="base", step=done, total_steps=steps, val_loss=val_loss,
-                phase_start=phase_start,
+                phase_start=phase_start, kd=kd,
             )
 
     save_checkpoint(
         weights_path, model, cfg,
         kind="base", step=steps, total_steps=steps, val_loss=val_loss, phase_start=phase_start,
+        kd=kd,
     )
     state_path.unlink(missing_ok=True)
     print(f"done -> {weights_path.name}")
@@ -306,11 +373,14 @@ def main():
     ap.add_argument("--device", default="auto")
     ap.add_argument("--save-every", type=int, default=None)
     ap.add_argument("--milestone-every", type=int, default=None)
+    ap.add_argument("--teacher")
+    ap.add_argument("--kd-weight", type=float, default=0.5)
+    ap.add_argument("--kd-temp", type=float, default=2.0)
     args = ap.parse_args()
     pretrain(args.steps, args.resume, args.init, args.size, args.batch, args.accum, args.lr,
-             args.save_every, args.milestone_every, args.device)
+             args.save_every, args.milestone_every, args.device, args.teacher,
+             args.kd_weight, args.kd_temp)
 
 
 if __name__ == "__main__":
     main()
-    

@@ -20,6 +20,7 @@ dependencies = [
 [project.scripts]
 prep = "mini_llm.prep:main"
 pretrain = "mini_llm.pretrain:main"
+teacher = "mini_llm.teacher:main"
 sft = "mini_llm.sft:main"
 chat = "mini_llm.chat:main"
 export = "mini_llm.export:main"

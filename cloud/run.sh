@@ -5,6 +5,9 @@ cd "$(dirname "$0")/.."
 SIZE=40M
 STEPS=35096
 PREP_MILLIONS=4600
+TEACHER=${TEACHER:-}
+KD_WEIGHT=${KD_WEIGHT:-0.5}
+KD_TEMP=${KD_TEMP:-2.0}
 
 case "$SIZE" in
   40M|150M) EXPECT_VOCAB=32768 ;;
@@ -34,6 +37,9 @@ setup)
     || { echo "CUDA not available" >&2; exit 1; }
   SIZE="$SIZE" cloud/preflight.sh
   ;;
+teacher)
+  uv run teacher
+  ;;
 prep)
   if [ -f data/meta.json ]; then
     have=$(uv run python -c "import json; print(json.load(open('data/meta.json')).get('vocab'))")
@@ -58,6 +64,9 @@ smoke)
   ;;
 train)
   args=(uv run pretrain "$STEPS" --size "$SIZE" --device cuda)
+  if [ -n "$TEACHER" ]; then
+    args+=(--teacher "$TEACHER" --kd-weight "$KD_WEIGHT" --kd-temp "$KD_TEMP")
+  fi
   if compgen -G "models/*/*/mini-llm-base-*-${STEPS}steps.state.pt" > /dev/null; then
     args+=(--resume)
   fi
@@ -98,7 +107,7 @@ pack)
   echo "runpodctl send /workspace/export.tar"
   ;;
 *)
-  echo "usage: $0 {setup|prep|smoke|train|sft|eval|status|pack}"
+  echo "usage: $0 {setup|prep|teacher|smoke|train|sft|eval|status|pack}"
   exit 1
   ;;
 esac
