@@ -15,6 +15,7 @@ case "$SIZE" in
 esac
 
 BASE="models/$((EXPECT_VOCAB / 1024))k/${SIZE}/mini-llm-base-${SIZE}-${STEPS}steps.pt"
+ASSISTANT="models/$((EXPECT_VOCAB / 1024))k/${SIZE}/mini-llm-assistant-${SIZE}.pt"
 
 export UV_CACHE_DIR=/workspace/.uv-cache
 export UV_LINK_MODE=copy
@@ -39,6 +40,13 @@ setup)
   ;;
 teacher)
   uv run teacher
+  ;;
+test)
+  uv run pytest
+  EVAL_DIR="${MINI_EVAL_DIR:-../Mini-Eval}"
+  if [ -d "$EVAL_DIR" ] && [ "$(uname -s)" = "Linux" ]; then
+    (cd "$EVAL_DIR" && uv run pytest)
+  fi
   ;;
 prep)
   if [ -f data/meta.json ]; then
@@ -110,8 +118,13 @@ pack)
   ls -lh /workspace/export.tar
   echo "runpodctl send /workspace/export.tar"
   ;;
+export-hf)
+  cloud/run.sh test
+  uv run export "$BASE" --base
+  uv run export "$ASSISTANT"
+  ;;
 *)
-  echo "usage: $0 {setup|prep|teacher|smoke|train|sft|eval|status|pack}"
+  echo "usage: $0 {setup|prep|teacher|test|smoke|train|sft|eval|status|pack|export-hf}"
   exit 1
   ;;
 esac
