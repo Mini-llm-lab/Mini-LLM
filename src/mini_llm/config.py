@@ -52,7 +52,7 @@ def size_millions(n_params):
 
 PRESETS = {
     "34M": Cfg(),
-    "40M": Cfg(vocab=32768),
+    "40M": Cfg(vocab=32768, ctx=1024),
     "70M": Cfg(dim=640, layers=12, heads=10, ffn=1728),
     "150M": Cfg(dim=768, layers=18, heads=12, ffn=2048, vocab=32768),
 }

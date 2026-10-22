@@ -66,16 +66,19 @@ def validate_teacher(tcfg, cfg):
         sys.exit(f"The teacher context is {tcfg.ctx} but the student needs {cfg.ctx}.")
 
 
-def default_batch(dev, size="34M"):
+def default_batch(dev, size="34M", ctx=512):
+    # Targets are in tokens/step (= batch * accum * ctx), ctx-independent:
+    # ctx 1024 halves accum so the 40M keeps its 131k tokens/step budget.
     if dev == "cuda":
         try:
             total = torch.cuda.get_device_properties(0).total_memory
-            if total >= 40 * 1024**3:
-                return (64, 4) if size in BIG_BATCH_SIZES else (64, 2)
+            batch = 64 if total >= 40 * 1024**3 else 32
         except Exception:
-            pass
-        return (32, 8) if size in BIG_BATCH_SIZES else (32, 4)
-    return 32, 4
+            batch = 32
+    else:
+        batch = 32
+    target = 131072 if size in BIG_BATCH_SIZES else 65536
+    return batch, max(1, target // (batch * ctx))
 
 
 def check_data_matches(meta_path, cfg, tok_path=None, train_len=None, val_len=None):
@@ -138,7 +141,7 @@ def pretrain(steps=5000, resume=False, init=None, size="34M", batch=None, accum=
         save_every = 1000
     if milestone_every is None:
         milestone_every = 10000 if size == "150M" else 5000
-    db, da = default_batch(dev, size)
+    db, da = default_batch(dev, size, cfg.ctx)
     batch = db if batch is None else batch
     accum = da if accum is None else accum
 
