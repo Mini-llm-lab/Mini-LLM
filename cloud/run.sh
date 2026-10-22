@@ -36,6 +36,12 @@ setup)
   nvidia-smi
   uv run python -c "import sys, torch; sys.exit(0 if torch.cuda.is_available() else 1)" \
     || { echo "CUDA not available" >&2; exit 1; }
+  EVAL_DIR="${MINI_EVAL_DIR:-../Mini-Eval}"
+  if [ ! -f "$EVAL_DIR/pyproject.toml" ]; then
+    echo "Mini-Eval not found at $EVAL_DIR, cloning..."
+    git clone "${MINI_EVAL_URL:-https://github.com/Mini-llm-lab/Mini-Eval.git}" "$EVAL_DIR" \
+      || { echo "Mini-Eval is required by test/eval: clone it at $EVAL_DIR or set MINI_EVAL_URL." >&2; exit 1; }
+  fi
   SIZE="$SIZE" cloud/preflight.sh
   ;;
 teacher)
