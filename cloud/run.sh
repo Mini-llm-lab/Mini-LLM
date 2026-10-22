@@ -121,6 +121,14 @@ pack)
   while IFS= read -r f; do files+=("$f"); done < <(find models -maxdepth 3 -name "mini-llm-base-${SIZE}-*.pt" ! -name '*.state.pt' ! -name '*.at*.pt' | sort)
   while IFS= read -r f; do files+=("$f"); done < <(find models -maxdepth 3 -name "mini-llm-assistant-${SIZE}.pt" | sort)
   tar -cf /workspace/export.tar "${files[@]}"
+  EVAL_DIR="${MINI_EVAL_DIR:-../Mini-Eval}"
+  if [ -d "$EVAL_DIR/results" ]; then
+    tar -rf /workspace/export.tar -C "$(dirname "$EVAL_DIR")" \
+      "$(basename "$EVAL_DIR")/results" \
+      "$(basename "$EVAL_DIR")/reports" \
+      "$(basename "$EVAL_DIR")/models.yaml"
+    echo "evals included: $(find "$EVAL_DIR/results" -name results.json | wc -l) runs"
+  fi
   ls -lh /workspace/export.tar
   echo "runpodctl send /workspace/export.tar"
   ;;
