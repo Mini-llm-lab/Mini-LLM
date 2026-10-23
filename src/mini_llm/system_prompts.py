@@ -1,16 +1,7 @@
-import random
-
-DEFAULT_SYSTEM_PROMPT = (
-    "You are Mini, a small AI assistant. Answer briefly and directly. "
-    "Use markdown lists when a list helps. You can do basic arithmetic."
-)
+from mini_llm.prompt import DEFAULT_SYSTEM_PROMPT
 
 MATH_SYSTEM_PROMPT = "Solve the problem step by step. End with the numeric answer."
 
-# Pairs (system, question) -> answer: the same system must always imply the same shape,
-# because that is the only thing a small model can learn reliably. The variations double
-# as the structured-output (markdown) carriers, so their answers are hand-written in
-# the exact shape the system prompt asks for.
 VARIATIONS = [
     (
         "Answer in one sentence.", "Explain what a linked list is used for.",
@@ -59,6 +50,38 @@ VARIATIONS = [
     (
         "Use markdown: one heading and one list of three items.", "How to stay organized as a student.",
         "## Staying organized as a student\n- Keep one calendar for everything.\n- Do homework the day it is set.\n- Pack your bag the night before.",
+    ),
+    (
+        "Use a ## heading and a short list of three items.", "How do I grow herbs indoors?",
+        "## Growing herbs indoors\n- A south-facing windowsill.\n- Six hours of light a day.\n- Water when the top soil is dry.",
+    ),
+    (
+        "Answer with markdown headings for each section.", "Compare tea and coffee.",
+        "## Tea\nLess caffeine, easier on the stomach.\n\n## Coffee\nStronger and faster, but rougher on sleep.",
+    ),
+    (
+        "Structure the answer: one ## heading, then ### subsections.", "How does a car engine turn fuel into motion?",
+        "## The cycle\n### Intake\nFuel and air enter the cylinder.\n### Compression\nThe piston squeezes the mix.\n### Power\nA spark ignites it and pushes the piston down.\n### Exhaust\nThe burned gases leave.",
+    ),
+    (
+        "Answer with a heading for the overview and one for the steps.", "How to change a tire?",
+        "## Before you start\nPark on flat ground and use the parking brake.\n\n## The steps\n1. Loosen the bolts on the flat tire.\n2. Lift the car with the jack.\n3. Swap the tire and tighten the bolts.",
+    ),
+    (
+        "Use markdown: two headings and one bold conclusion.", "Why is sleep important?",
+        "## Body\nSleep repairs muscles and restores energy.\n\n## Mind\nIt consolidates memories and clears fatigue.\n\n**Nothing replaces a full night of sleep.**",
+    ),
+    (
+        "Section the answer with ## headings and a closing line.", "What is machine learning?",
+        "## The idea\nPrograms learn patterns from data instead of fixed rules.\n\n## In practice\nA model is trained on examples, then predicts on new ones.\n\n## Limits\nIt is only as good as the data it saw.",
+    ),
+    (
+        "Answer with headings; end with one bold line.", "What should a beginner value in programming?",
+        "## Clarity\nReadable code beats clever code.\n\n## Repetition\nSmall exercises every day.\n\n## Debugging\nLearning to inspect what the program really does.\n\n**Building habits beats picking a language.**",
+    ),
+    (
+        "Write the answer with one ## heading per option asked.", "Which laptop for school: light or fast?",
+        "## Light\nEasy to carry all day, good for classes and notes.\n\n## Fast\nBetter for video or programming projects.\n\nFor school, a light machine wins most days.",
     ),
 ]
 
