@@ -4,11 +4,11 @@ from pathlib import Path
 
 import torch
 
-from mini_llm.prompt import DEFAULT_SYSTEM_PROMPT, format_prompt
+from mini_llm.checkpoints import load_model, load_tokenizer, resolve_checkpoint, tokenizer_file
 from mini_llm.config import MODELS_DIR
 from mini_llm.configuration_mini_llm import MiniLlmConfig
 from mini_llm.modeling_mini_llm import MiniLlmForCausalLM
-from mini_llm.prompt import format_prompt
+from mini_llm.prompt import DEFAULT_SYSTEM_PROMPT, format_prompt
 
 CHAT_TEMPLATE = (
     "{% for m in messages %}"
@@ -18,8 +18,7 @@ CHAT_TEMPLATE = (
 )
 
 
-def v2_chat_template():
-    """The digit32k (v2) format: System: <default+date>\\nUser: \\\\nAssistant:"""
+def system_chat_template():
     header = (
         "System: Today is {{ strftime_now('%b %d, %Y') }}.\n"
         + DEFAULT_SYSTEM_PROMPT.strip()
@@ -41,7 +40,7 @@ def v2_chat_template():
     return loop + gen
 
 
-def build_tokenizer(tok_path, chat_template=True, v2=False):
+def build_tokenizer(tok_path, chat_template=True, system_format=False):
     from transformers import PreTrainedTokenizerFast
 
     tok = PreTrainedTokenizerFast(
@@ -52,7 +51,7 @@ def build_tokenizer(tok_path, chat_template=True, v2=False):
         bos_token=None,
     )
     if chat_template:
-        tok.chat_template = v2_chat_template() if v2 else CHAT_TEMPLATE
+        tok.chat_template = system_chat_template() if system_format else CHAT_TEMPLATE
     return tok
 
 
@@ -64,9 +63,9 @@ def export(checkpoint=None, out=None, verify=True, base=False):
     native.eval()
     tok_path = tokenizer_file(ckpt)
     raw_tok = load_tokenizer(str(ckpt))
-    v2 = getattr(cfg, "lineage", "") == "digit32k"
+    system_format = getattr(cfg, "lineage", "") == "digit32k"
     verify_prompt = (
-        format_prompt("Hello world", DEFAULT_SYSTEM_PROMPT) if v2 else format_prompt("Hello world")
+        format_prompt("Hello world", DEFAULT_SYSTEM_PROMPT) if system_format else format_prompt("Hello world")
     )
     eos = raw_tok.token_to_id("<eos>")
 
@@ -104,13 +103,13 @@ def export(checkpoint=None, out=None, verify=True, base=False):
 
     hf.save_pretrained(str(out), safe_serialization=True)
 
-    tok = build_tokenizer(tok_path, chat_template=not base, v2=v2)
+    tok = build_tokenizer(tok_path, chat_template=not base, system_format=system_format)
     tok.save_pretrained(str(out))
 
     if not base:
         from transformers import GenerationConfig
 
-        rep_penalty, max_new = (1.1, 512) if v2 else (1.15, 256)
+        rep_penalty, max_new = (1.1, 512) if system_format else (1.15, 256)
         gen = GenerationConfig(
             do_sample=True,
             temperature=0.5,
