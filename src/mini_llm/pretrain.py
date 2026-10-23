@@ -62,6 +62,11 @@ def validate_teacher(tcfg, cfg):
         sys.exit(
             f"The teacher predicts {tcfg.vocab} tokens but the {cfg.vocab} lineage needs {cfg.vocab}."
         )
+    if getattr(tcfg, "lineage", "") != getattr(cfg, "lineage", ""):
+        sys.exit(
+            f"The teacher was trained on the {getattr(tcfg, 'lineage', '')!r} tokenizer lineage "
+            f"but the student needs {getattr(cfg, 'lineage', '')!r}."
+        )
     if tcfg.ctx < cfg.ctx:
         sys.exit(f"The teacher context is {tcfg.ctx} but the student needs {cfg.ctx}.")
 
@@ -77,6 +82,8 @@ def default_batch(dev, size="34M", ctx=512):
             batch = 32
     else:
         batch = 32
+    # Keep the per-micro-batch token count bounded so activations do not explode with ctx:
+    batch = min(batch, max(1, 65536 // ctx))
     target = 131072 if size in BIG_BATCH_SIZES else 65536
     return batch, max(1, target // (batch * ctx))
 
@@ -85,7 +92,7 @@ def check_data_matches(meta_path, cfg, tok_path=None, train_len=None, val_len=No
     import json
 
     if tok_path is None:
-        tok_path = tokenizer_path(cfg.vocab)
+        tok_path = tokenizer_path(cfg.vocab, getattr(cfg, "lineage", ""))
     if not meta_path.exists():
         print("warning: no data/meta.json (data predates vocab tracking)")
         return
@@ -94,6 +101,12 @@ def check_data_matches(meta_path, cfg, tok_path=None, train_len=None, val_len=No
         raise SystemExit(
             f"data/meta.json has vocab={meta.get('vocab')} but the {cfg.vocab} preset needs vocab={cfg.vocab}. "
             "Regenerate data/ with prep, or pick the matching --size."
+        )
+    stored_lineage = meta.get("lineage", "")
+    if stored_lineage != getattr(cfg, "lineage", ""):
+        raise SystemExit(
+            f"data belongs to the lineage {stored_lineage!r} but the preset needs {getattr(cfg, 'lineage', '')!r}. "
+            "Run prep with --lineage to regenerate data/ for this tokenizer lineage."
         )
     if not tok_path.exists():
         raise SystemExit(f"Tokenizer missing: {tok_path}")
@@ -171,7 +184,7 @@ def pretrain(steps=5000, resume=False, init=None, size="34M", batch=None, accum=
         print(f"teacher: {teacher_path.name} | kd weight {kd_weight:g} | temp {kd_temp:g}")
     n_params = sum(p.numel() for p in model.parameters())
     tag = f"{size_millions(n_params)}M"
-    out_dir = model_dir(cfg.vocab, tag)
+    out_dir = model_dir(cfg.vocab, tag, getattr(cfg, "lineage", ""))
     out_dir.mkdir(parents=True, exist_ok=True)
     stem = f"mini-llm-base-{tag}-{steps}steps"
     weights_path = out_dir / f"{stem}.pt"
