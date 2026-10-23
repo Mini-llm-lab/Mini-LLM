@@ -17,12 +17,19 @@ from mini_llm.checkpoints import (
     save_checkpoint,
 )
 from mini_llm.config import resolve_device, size_millions
+from mini_llm import math_data
 from mini_llm.identity import arithmetic_pairs, identity_pairs
 from mini_llm.prompt import format_prompt
+from mini_llm.system_prompts import DEFAULT_SYSTEM_PROMPT, MATH_SYSTEM_PROMPT, variation_pairs
 
 VAL_SIZE = 500
 AI_MAX_SHARE = 0.25
 IDENTITY_REPEAT = 5
+VARIATION_REPEAT = 5
+MATH_COUNT = 150_000
+SKILL_COUNT = 10_000
+GSM8K_MAX = 4000
+V2_LINEAGE = "digit32k"
 IDENTITY_LEAK = re.compile(
     r"open ?assistant|\blaion\b|chat ?gpt|openai"
     r"|as an ai( language)? model"
@@ -33,29 +40,68 @@ IDENTITY_LEAK = re.compile(
 
 def dolly_pairs():
     ds = load_dataset("databricks/databricks-dolly-15k", split="train")
-    return [(d["instruction"], d["response"]) for d in ds if not d["context"].strip()]
+    plain, with_context = [], []
+    for d in ds:
+        if d["context"].strip():
+            with_context.append((f"{d['context'].strip()}\n\n{d['instruction']}", d["response"]))
+        else:
+            plain.append((d["instruction"], d["response"]))
+    return plain, with_context
 
 
 def no_robots_pairs():
     ds = load_dataset("HuggingFaceH4/no_robots")
     split = "train_sft" if "train_sft" in ds else "train"
-    pairs = []
+    pairs, conversations = [], []
     for d in ds[split]:
         msgs = [m for m in d["messages"] if m["role"] != "system"]
         if len(msgs) >= 2 and msgs[0]["role"] == "user" and msgs[1]["role"] == "assistant":
+            if (
+                len(msgs) >= 4
+                and msgs[2]["role"] == "user"
+                and msgs[3]["role"] == "assistant"
+                and msgs[3]["content"].strip()
+            ):
+                conversations.append(
+                    [
+                        [msgs[0]["content"], msgs[1]["content"]],
+                        [msgs[2]["content"], msgs[3]["content"]],
+                    ]
+                )
             pairs.append((msgs[0]["content"], msgs[1]["content"]))
-    return pairs
+    return pairs, conversations
 
 
 def oasst_pairs():
     ds = load_dataset("OpenAssistant/oasst2", split="train")
     ds = [d for d in ds if d["lang"] == "en" and not d["deleted"] and d["review_result"]]
-    prompts = {d["message_id"]: d["text"] for d in ds if d["role"] == "prompter" and d["parent_id"] is None}
-    return [
-        (prompts[d["parent_id"]], d["text"])
-        for d in ds
-        if d["role"] == "assistant" and d["rank"] == 0 and d["parent_id"] in prompts
-    ]
+    by_parent = {}
+    for d in ds:
+        by_parent.setdefault(d["parent_id"], []).append(d)
+
+    def top_reply(parent_id):
+        replies = [c for c in by_parent.get(parent_id, []) if c["role"] == "assistant"]
+        return min(replies, key=lambda r: r["rank"] if r["rank"] is not None else 999) if replies else None
+
+    pairs, conversations = [], []
+    for prompter in [d for d in ds if d["role"] == "prompter" and d["parent_id"] is None]:
+        a1 = top_reply(prompter["message_id"])
+        if a1 is None or a1["rank"] != 0 or not a1["text"].strip():
+            continue
+        followups = [c for c in by_parent.get(a1["message_id"], []) if c["role"] == "prompter"]
+        if followups:
+            u2 = min(followups, key=lambda c: (len(c["text"]), c["message_id"]))
+            a2 = top_reply(u2["message_id"])
+            if a2 is not None and a2["rank"] == 0 and u2["text"].strip() and a2["text"].strip():
+                conversations.append(
+                    [
+                        [prompter["text"], a1["text"]],
+                        [u2["text"], a2["text"]],
+                    ]
+                )
+                continue
+        pairs.append((prompter["text"], a1["text"]))
+    return pairs, conversations
 
 
 def alpaca_pairs():
@@ -63,34 +109,96 @@ def alpaca_pairs():
     return [(d["instruction"], d["output"]) for d in ds if not d["input"].strip()]
 
 
-HUMAN_SOURCES = {"dolly": dolly_pairs, "no_robots": no_robots_pairs, "oasst2": oasst_pairs}
-AI_SOURCES = {"alpaca": alpaca_pairs}
+def gsm8k_pairs():
+    try:
+        ds = load_dataset("openai/gsm8k", "main", split="train")
+    except Exception:
+        ds = load_dataset("gsm8k", "main", split="train")
+    out = []
+    for d in ds:
+        raw = d["answer"]
+        if "####" not in raw:
+            continue
+        steps, final = raw.rsplit("####", 1)
+        steps = re.sub(r"<<[^>]*>>", "", steps).strip()
+        final = final.strip().replace(",", "")
+        if not steps or not final or final.count("-") > 0:
+            continue
+        if steps.count("\n") > 2 or len(d["question"].split()) > 80:
+            continue
+        out.append((d["question"].strip(), f"{steps} The answer is {final}."))
+    random.Random(0).shuffle(out)
+    return out[:GSM8K_MAX]
 
 
-def encode_pairs(name, pairs, tok, eos, ctx, clean=True):
-    pairs = [(q, a) for q, a in pairs if q.strip() and a.strip()]
-    if clean:
-        before = len(pairs)
-        pairs = [(q, a) for q, a in pairs if not IDENTITY_LEAK.search(a)]
-        print(f"{name}: {before - len(pairs)} answers removed (they describe another assistant's identity)")
-    prompts = tok.encode_batch([format_prompt(q) for q, _ in pairs])
-    answers = tok.encode_batch([" " + a.strip() for _, a in pairs])
-    kept = [
-        (p.ids, a.ids + [eos])
-        for p, a in zip(prompts, answers)
-        if len(p.ids) + len(a.ids) + 1 <= ctx
-    ]
-    print(f"{name}: {len(kept)}/{len(pairs)} examples kept")
+def conversation_segments(system, turns):
+    """All turns are answered pairs; every answer is a supervised span."""
+    segments = []
+    if system:
+        segments.append(("System: " + system.strip() + "\n", False))
+    for question, answer in turns:
+        segments.append((f"User: {question.strip()}\nAssistant:", False))
+        segments.append((" " + answer.strip(), True))
+    return segments
+
+
+def pair_segments(system, question, answer):
+    return [(format_prompt(question, system), False), (" " + answer.strip(), True)]
+
+
+def encode_segments(tok, segments, eos, ctx):
+    ids, mask = [], []
+    for text, supervised in segments:
+        enc = tok.encode(text)
+        ids.extend(enc.ids)
+        mask.extend([supervised] * len(enc.ids))
+        if supervised:
+            ids.append(eos)
+            mask.append(True)
+    if not ids or len(ids) > ctx:
+        return None
+    return ids, mask
+
+
+def encode(name, items, tok, eos, ctx, clean=True):
+    """items: list of segment lists; returns [(ids, mask)]."""
+    kept = []
+    for segments in items:
+        if clean:
+            has_leak = any(
+                IDENTITY_LEAK.search(text) for text, supervised in segments if supervised
+            )
+            if has_leak:
+                continue
+        enc = encode_segments(tok, segments, eos, ctx)
+        if enc:
+            kept.append(enc)
+    print(f"{name}: {len(kept)}/{len(items)} kept")
     return kept
 
 
-def load_examples(tok, eos, ctx):
-    human = []
-    for name, fn in HUMAN_SOURCES.items():
-        human += encode_pairs(name, fn(), tok, eos, ctx)
-    ai = []
-    for name, fn in AI_SOURCES.items():
-        ai += encode_pairs(name, fn(), tok, eos, ctx)
+def load_examples(tok, eos, ctx, v2):
+    human, ai = [], []
+    dolly_plain, dolly_context = dolly_pairs()
+    no_robots, no_robots_multi = no_robots_pairs()
+    oasst, oasst_multi = oasst_pairs()
+    sources = {"dolly": dolly_plain, "no_robots": no_robots, "oasst2": oasst}
+    if v2:
+        sources["dolly with context"] = dolly_context
+    for name, fn in sources.items():
+        human += encode(name, [pair_segments(DEFAULT_SYSTEM_PROMPT if v2 else None, q, a) for q, a in fn], tok, eos, ctx)
+    if v2:
+        human += encode("gsm8k", [pair_segments(MATH_SYSTEM_PROMPT, q, a) for q, a in gsm8k_pairs()], tok, eos, ctx)
+    for name, conversations in (("no_robots multi-turn", no_robots_multi), ("oasst2 multi-turn", oasst_multi)):
+        if not v2:
+            continue
+        human += encode(
+            name,
+            [conversation_segments(DEFAULT_SYSTEM_PROMPT, [tuple(t) for t in c]) for c in conversations],
+            tok, eos, ctx, clean=False,
+        )
+    for name, fn in {"alpaca": alpaca_pairs}.items():
+        ai += encode(name, [pair_segments(None if not v2 else DEFAULT_SYSTEM_PROMPT, q, a) for q, a in fn()], tok, eos, ctx)
     cap = int(len(human) * AI_MAX_SHARE / (1 - AI_MAX_SHARE))
     random.Random(0).shuffle(ai)
     ai = ai[:cap]
@@ -105,25 +213,39 @@ def sft(epochs=3, base=None, resume=False, device="auto", bs=None, accum=None):
     model, cfg = load_model(base, dev)
     tok = load_tokenizer(base)
     eos = tok.token_to_id("<eos>")
+    v2 = cfg.lineage == V2_LINEAGE
 
     n_params = sum(p.numel() for p in model.parameters())
 
-    data = load_examples(tok, eos, cfg.ctx)
+    data = load_examples(tok, eos, cfg.ctx, v2)
     random.Random(0).shuffle(data)
     val, train = data[:VAL_SIZE], data[VAL_SIZE:]
-    extra = encode_pairs(
-        "identity and arithmetic",
-        identity_pairs(size_millions(n_params), repeat=IDENTITY_REPEAT) + arithmetic_pairs(),
-        tok, eos, cfg.ctx, clean=False,
-    )
-    train = train + extra
+
+    extra_ident = identity_pairs(size_millions(n_params), repeat=IDENTITY_REPEAT) + arithmetic_pairs()
+    ident_system = DEFAULT_SYSTEM_PROMPT if v2 else None
+    train += encode("identity and arithmetic", [pair_segments(ident_system, q, a) for q, a in extra_ident], tok, eos, ctx, clean=False)
+    if v2:
+        train += encode(
+            "variations",
+            [pair_segments(system, q, a) for system, q, a in variation_pairs(VARIATION_REPEAT)],
+            tok, eos, ctx, clean=False,
+        )
+        train += encode(
+            "math",
+            [pair_segments(DEFAULT_SYSTEM_PROMPT, q, a) for q, a in math_data.synthetic_pairs(MATH_COUNT)],
+            tok, eos, ctx, clean=False,
+        )
+        train += encode(
+            "skills",
+            [pair_segments(DEFAULT_SYSTEM_PROMPT, q, a) for q, a in math_data.skill_pairs(SKILL_COUNT)],
+            tok, eos, ctx, clean=False,
+        )
     print(f"{len(train)} train examples, {len(val)} validation examples")
 
     def make_batch(items):
         xs, ys = [], []
-        for p, a in items:
-            ids = p + a
-            labels = [-100] * len(p) + a
+        for ids, mask in items:
+            labels = [i if m else -100 for i, m in zip(ids, mask)]
             xs.append(ids[:-1])
             ys.append(labels[1:])
         n = max(len(x) for x in xs)
