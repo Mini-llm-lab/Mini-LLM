@@ -1,15 +1,16 @@
 # Mini-LLM
 
 Small assistants (~40M and ~150M parameters on the 32k tokenizer lineage, ~34M and
-~70M on the earlier 16k lineage) trained **entirely from scratch** with PyTorch: no
-pretrained weights, no existing model.
+~70M on the earlier 16k lineage) trained **end-to-end** with PyTorch — custom BPE
+tokenizer, transformer decoder architecture, pretraining and SFT, no pretrained backbone.
 
 Training runs on NVIDIA GPUs (CUDA).
 
-> With 34M parameters and ~100M training tokens, the assistant writes coherent
-> sentences in the right format, but it often gets facts wrong. The 70M model trained
-> on ~1.44B tokens (cloud GPU) lowers base val loss from 3.618 to 3.030: answers are
-> more fluent and better formatted, but factual errors and hallucinations remain.
+> Training scale translates directly into output quality: base val loss drops from
+> 3.618 (34M, ~0.2B tokens) to 3.030 (70M, ~1.4B tokens) and to 2.941 (150M, ~4.5B
+> tokens) — larger models are markedly more fluent and better formatted. Conformance
+> and factual accuracy are tracked continuously with
+> [Mini-Eval](https://github.com/Mini-llm-lab/Mini-Eval).
 
 **Full documentation: [../Documentation/Mini-LLM](../Documentation/Mini-LLM/README.md)**
 
