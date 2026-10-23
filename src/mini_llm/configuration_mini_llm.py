@@ -34,6 +34,7 @@ class MiniLlmConfig(PretrainedConfig):
 
     @classmethod
     def from_cfg(cls, cfg, **kwargs):
+        kwargs.setdefault("lineage", getattr(cfg, "lineage", ""))
         return cls(
             vocab_size=cfg.vocab,
             hidden_size=cfg.dim,

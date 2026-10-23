@@ -4,12 +4,7 @@ from pathlib import Path
 
 import torch
 
-from mini_llm.checkpoints import (
-    load_model,
-    load_tokenizer,
-    resolve_checkpoint,
-    tokenizer_file,
-)
+from mini_llm.prompt import DEFAULT_SYSTEM_PROMPT, format_prompt
 from mini_llm.config import MODELS_DIR
 from mini_llm.configuration_mini_llm import MiniLlmConfig
 from mini_llm.modeling_mini_llm import MiniLlmForCausalLM
@@ -23,7 +18,30 @@ CHAT_TEMPLATE = (
 )
 
 
-def build_tokenizer(tok_path, chat_template=True):
+def v2_chat_template():
+    """The digit32k (v2) format: System: <default+date>\\nUser: \\\\nAssistant:"""
+    header = (
+        "System: Today is {{ strftime_now('%b %d, %Y') }}.\n"
+        + DEFAULT_SYSTEM_PROMPT.strip()
+        + "\n"
+    )
+    loop = (
+        "{% for m in messages %}"
+        "{{ ('System: ' + m['content'].strip() + '\\n') if m['role'] == 'system' "
+        "else ('User: ' + m['content'].strip() + '\\n') if m['role'] == 'user' "
+        "else ('Assistant: ' + m['content'].strip() + '\\n') }}"
+        "{% endfor %}"
+    )
+    gen = (
+        "{% if add_generation_prompt %}"
+        "{% set has_system = messages and messages[0]['role'] == 'system' %}"
+        "{% if not has_system %}" + header + "{% endif %}"
+        "Assistant:{% endif %}"
+    )
+    return loop + gen
+
+
+def build_tokenizer(tok_path, chat_template=True, v2=False):
     from transformers import PreTrainedTokenizerFast
 
     tok = PreTrainedTokenizerFast(
@@ -34,7 +52,7 @@ def build_tokenizer(tok_path, chat_template=True):
         bos_token=None,
     )
     if chat_template:
-        tok.chat_template = CHAT_TEMPLATE
+        tok.chat_template = v2_chat_template() if v2 else CHAT_TEMPLATE
     return tok
 
 
@@ -46,6 +64,10 @@ def export(checkpoint=None, out=None, verify=True, base=False):
     native.eval()
     tok_path = tokenizer_file(ckpt)
     raw_tok = load_tokenizer(str(ckpt))
+    v2 = getattr(cfg, "lineage", "") == "digit32k"
+    verify_prompt = (
+        format_prompt("Hello world", DEFAULT_SYSTEM_PROMPT) if v2 else format_prompt("Hello world")
+    )
     eos = raw_tok.token_to_id("<eos>")
 
     hf_config = MiniLlmConfig.from_cfg(cfg)
@@ -71,7 +93,7 @@ def export(checkpoint=None, out=None, verify=True, base=False):
     if verify:
         with torch.no_grad():
             sample = torch.tensor(
-                [raw_tok.encode(format_prompt("Hello world")).ids[:32] or [eos]]
+                [raw_tok.encode(verify_prompt).ids[:32] or [eos]]
             )
             ref, _ = native(sample)
             got = hf(input_ids=sample).logits
@@ -82,18 +104,19 @@ def export(checkpoint=None, out=None, verify=True, base=False):
 
     hf.save_pretrained(str(out), safe_serialization=True)
 
-    tok = build_tokenizer(tok_path, chat_template=not base)
+    tok = build_tokenizer(tok_path, chat_template=not base, v2=v2)
     tok.save_pretrained(str(out))
 
     if not base:
         from transformers import GenerationConfig
 
+        rep_penalty, max_new = (1.1, 512) if v2 else (1.15, 256)
         gen = GenerationConfig(
             do_sample=True,
             temperature=0.5,
             top_k=40,
-            repetition_penalty=1.15,
-            max_new_tokens=256,
+            repetition_penalty=rep_penalty,
+            max_new_tokens=max_new,
             eos_token_id=eos,
             pad_token_id=eos,
         )
@@ -111,7 +134,7 @@ def export(checkpoint=None, out=None, verify=True, base=False):
             str(out), trust_remote_code=True, dtype=torch.float32
         ).eval()
         with torch.no_grad():
-            sample = torch.tensor([rt_tok.encode(format_prompt("Hello world"))[:32] or [eos]])
+            sample = torch.tensor([rt_tok.encode(verify_prompt)[:32] or [eos]])
             a = hf(input_ids=sample).logits.float()
             b = rt(input_ids=sample).logits.float()
             diff = (a - b).abs().max().item()
