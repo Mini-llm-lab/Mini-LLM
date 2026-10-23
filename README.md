@@ -6,7 +6,7 @@ tokenizer, transformer decoder architecture, pretraining and SFT, no pretrained 
 
 Training runs on NVIDIA GPUs (CUDA).
 
-The 150M **v2** (`models/digit32k/`) is the current cloud recipe: digit-split
+The 150M **1.1** (`models/digit32k/`) is the current cloud recipe: digit-split
 tokenizer, 2048-token context, system-prompt format, hybrid math / markdown /
 multi-turn SFT, ~7B-token pretraining budget — see
 [training](../Documentation/Mini-LLM/training.md) and
