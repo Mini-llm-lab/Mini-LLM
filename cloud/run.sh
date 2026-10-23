@@ -14,7 +14,7 @@ case "$SIZE" in
   *) EXPECT_VOCAB=16384 ;;
 esac
 case "$SIZE" in
-  150M) LINEAGE_DIR="digit32k" ;;   # v2: digit-split tokenizer, ctx 2048
+  150M) LINEAGE_DIR="digit32k" ;;
   *)    LINEAGE_DIR="$((EXPECT_VOCAB / 1024))k" ;;
 esac
 
@@ -40,6 +40,14 @@ setup)
   nvidia-smi
   uv run python -c "import sys, torch; sys.exit(0 if torch.cuda.is_available() else 1)" \
     || { echo "CUDA not available" >&2; exit 1; }
+  if [ -n "${HF_TOKEN:-}" ] || [ -n "${HUGGING_FACE_HUB_TOKEN:-}" ] || uv run hf auth whoami >/dev/null 2>&1; then
+    echo "HF token: OK"
+  else
+    echo "warning: no Hugging Face token — anonymous downloads get rate-limited and slow prep/sft" >&2
+    echo "  fix: uv run hf auth login   (once per pod; the token persists in /workspace/.hf)" >&2
+    echo "  or:  set HF_TOKEN on this pod (never commit it to the repo)" >&2
+    echo "  token: https://huggingface.co/settings/tokens (Read is enough)" >&2
+  fi
   EVAL_DIR="${MINI_EVAL_DIR:-../Mini-Eval}"
   if [ ! -f "$EVAL_DIR/pyproject.toml" ]; then
     echo "Mini-Eval not found at $EVAL_DIR, cloning..."
