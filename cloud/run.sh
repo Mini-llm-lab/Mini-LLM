@@ -2,9 +2,9 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-SIZE=40M
-STEPS=35096
-PREP_MILLIONS=4600
+SIZE=150M
+STEPS=53375
+PREP_MILLIONS=7300
 TEACHER=${TEACHER:-}
 KD_WEIGHT=${KD_WEIGHT:-0.5}
 KD_TEMP=${KD_TEMP:-2.0}
@@ -13,9 +13,13 @@ case "$SIZE" in
   40M|150M) EXPECT_VOCAB=32768 ;;
   *) EXPECT_VOCAB=16384 ;;
 esac
+case "$SIZE" in
+  150M) LINEAGE_DIR="digit32k" ;;   # v2: digit-split tokenizer, ctx 2048
+  *)    LINEAGE_DIR="$((EXPECT_VOCAB / 1024))k" ;;
+esac
 
-BASE="models/$((EXPECT_VOCAB / 1024))k/${SIZE}/mini-llm-base-${SIZE}-${STEPS}steps.pt"
-ASSISTANT="models/$((EXPECT_VOCAB / 1024))k/${SIZE}/mini-llm-assistant-${SIZE}.pt"
+BASE="models/${LINEAGE_DIR}/${SIZE}/mini-llm-base-${SIZE}-${STEPS}steps.pt"
+ASSISTANT="models/${LINEAGE_DIR}/${SIZE}/mini-llm-assistant-${SIZE}.pt"
 
 export UV_CACHE_DIR=/workspace/.uv-cache
 export UV_LINK_MODE=copy
@@ -68,6 +72,9 @@ prep)
   else
     vocab_args=()
   fi
+  if [ "$LINEAGE_DIR" != "$((EXPECT_VOCAB / 1024))k" ]; then
+    vocab_args+=(--lineage "$LINEAGE_DIR")
+  fi
   setsid nohup uv run prep "$PREP_MILLIONS" "${vocab_args[@]}" >"$LOGDIR/prep.log" 2>&1 < /dev/null &
   echo "prep started -> $LOGDIR/prep.log"
   ;;
@@ -116,7 +123,7 @@ status)
   df -h /workspace
   ;;
 pack)
-  TOK="models/$((EXPECT_VOCAB / 1024))k/tok.json"
+  TOK="models/${LINEAGE_DIR}/tok.json"
   files=("$TOK" data/meta.json)
   while IFS= read -r f; do files+=("$f"); done < <(find models -maxdepth 3 -name "mini-llm-base-${SIZE}-*.pt" ! -name '*.state.pt' ! -name '*.at*.pt' | sort)
   while IFS= read -r f; do files+=("$f"); done < <(find models -maxdepth 3 -name "mini-llm-assistant-${SIZE}.pt" | sort)
