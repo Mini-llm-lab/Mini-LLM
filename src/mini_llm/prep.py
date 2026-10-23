@@ -25,6 +25,16 @@ VAL_TOKENS = 1_000_000
 BATCH = 1_000
 
 
+def digit_pre_tokenizer():
+    """One token per digit: each digit stands alone and never merges with anything."""
+    return pre_tokenizers.Sequence(
+        [
+            pre_tokenizers.Digits(individual_digits=True),
+            pre_tokenizers.ByteLevel(add_prefix_space=False),
+        ]
+    )
+
+
 def texts(exhausted=None):
     rng = random.Random(SEED)
     streams = [
@@ -84,10 +94,10 @@ def prefetch(items, size=8):
         yield it
 
 
-def train_tokenizer(vocab, n_docs):
-    path = tokenizer_path(vocab)
+def train_tokenizer(vocab, n_docs, lineage=""):
+    path = tokenizer_path(vocab, lineage)
     tok = Tokenizer(models.BPE())
-    tok.pre_tokenizer = pre_tokenizers.ByteLevel(add_prefix_space=False)
+    tok.pre_tokenizer = digit_pre_tokenizer() if lineage else pre_tokenizers.ByteLevel(add_prefix_space=False)
     tok.decoder = decoders.ByteLevel()
     trainer = trainers.BpeTrainer(
         vocab_size=vocab,
@@ -97,20 +107,22 @@ def train_tokenizer(vocab, n_docs):
     t0 = time.time()
     docs = (text for _, text in zip(range(n_docs), (t for _, t in texts())))
     tok.train_from_iterator(docs, trainer)
-    print(f"tokenizer: vocab={vocab} from {n_docs} docs in {time.time() - t0:.0f}s")
+    print(f"tokenizer: vocab={vocab} lineage={lineage or 'classic'} from {n_docs} docs in {time.time() - t0:.0f}s")
     path.parent.mkdir(parents=True, exist_ok=True)
     tok.save(str(path))
 
 
-def prep(target_millions=120, size=None, vocab=None, tokenizer_docs=None):
+def prep(target_millions=120, size=None, vocab=None, tokenizer_docs=None, lineage=""):
     if vocab is None:
         vocab = get_preset(size).vocab if size else Cfg().vocab
+    if lineage is None:
+        lineage = get_preset(size).lineage if size else ""
     if tokenizer_docs is None:
         tokenizer_docs = TOKENIZER_DOCS_LARGE_VOCAB if vocab > Cfg().vocab else TOKENIZER_DOCS
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     MODELS_DIR.mkdir(parents=True, exist_ok=True)
 
-    tok_path = tokenizer_path(vocab)
+    tok_path = tokenizer_path(vocab, lineage)
     if tok_path.exists():
         existing = Tokenizer.from_file(str(tok_path)).get_vocab_size()
         if existing != vocab:
@@ -120,7 +132,7 @@ def prep(target_millions=120, size=None, vocab=None, tokenizer_docs=None):
             )
     else:
         print("Training the BPE tokenizer...")
-        train_tokenizer(vocab, tokenizer_docs)
+        train_tokenizer(vocab, tokenizer_docs, lineage)
     tok = Tokenizer.from_file(str(tok_path))
     eos = tok.token_to_id("<eos>")
 
@@ -163,6 +175,7 @@ def prep(target_millions=120, size=None, vocab=None, tokenizer_docs=None):
         print(f"warning: source exhausted before target: {src}")
     meta = {
         "vocab": vocab,
+        "lineage": lineage,
         "tokenizer_sha256": sha256_file(tok_path),
         "train_tokens": train_tokens,
         "val_tokens": val_tokens,
@@ -182,8 +195,10 @@ def main():
     ap.add_argument("--size", default=None)
     ap.add_argument("--vocab", type=int, default=None)
     ap.add_argument("--tokenizer-docs", type=int, default=None)
+    ap.add_argument("--lineage", default=None, choices=["", "digit32k"],
+                    help="tokenizer lineage to prepare (default: follow --size)")
     args = ap.parse_args()
-    prep(args.millions, args.size, args.vocab, args.tokenizer_docs)
+    prep(args.millions, args.size, args.vocab, args.tokenizer_docs, args.lineage)
     sys.stdout.flush()
     os._exit(0)
 

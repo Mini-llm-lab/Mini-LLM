@@ -8,16 +8,27 @@ DATA_DIR = ROOT / "data"
 MODELS_DIR = ROOT / "models"
 
 
-def tokenizer_dir(vocab):
-    return MODELS_DIR / f"{vocab // 1024}k"
+LINEAGE_DIRS = {"": "{vocab//1024}k", "digit32k": "digit32k"}
 
 
-def tokenizer_path(vocab):
-    return tokenizer_dir(vocab) / "tok.json"
+def lineage_dir(lineage):
+    key = lineage or ""
+    if key not in LINEAGE_DIRS:
+        return None
+    return LINEAGE_DIRS[key]
 
 
-def model_dir(vocab, tag):
-    return tokenizer_dir(vocab) / tag
+def tokenizer_dir(vocab, lineage=""):
+    spec = LINEAGE_DIRS[lineage or ""]
+    return MODELS_DIR / spec.replace("{vocab//1024}", str(vocab // 1024))
+
+
+def tokenizer_path(vocab, lineage=""):
+    return tokenizer_dir(vocab, lineage) / "tok.json"
+
+
+def model_dir(vocab, tag, lineage=""):
+    return tokenizer_dir(vocab, lineage) / tag
 
 
 @dataclass
@@ -28,6 +39,7 @@ class Cfg:
     heads: int = 8
     ffn: int = 1408
     ctx: int = 512
+    lineage: str = ""
 
 
 def get_device():
@@ -54,7 +66,7 @@ PRESETS = {
     "34M": Cfg(),
     "40M": Cfg(vocab=32768, ctx=1024),
     "70M": Cfg(dim=640, layers=12, heads=10, ffn=1728),
-    "150M": Cfg(dim=768, layers=18, heads=12, ffn=2048, vocab=32768),
+    "150M": Cfg(dim=768, layers=18, heads=12, ffn=2048, vocab=32768, ctx=2048, lineage="digit32k"),
 }
 
 
