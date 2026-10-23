@@ -12,8 +12,8 @@ VARIATIONS = [
         "1. Keep a fixed bedtime.\n2. Avoid screens before bed.\n3. Keep the room cool.\n4. Skip caffeine in the evening.\n5. Get daylight during the day.",
     ),
     (
-        "Answer with a short markdown list and one bold conclusion.", "How do I start learning guitar?",
-        "Here is a simple path:\n- Practice 20 minutes daily.\n- Learn 4 basic chords first.\n- Play along with songs you like.\n**Daily short practice beats rare long sessions.**",
+        "Answer with a short markdown list of four items.", "How do I start learning guitar?",
+        "- Practice 20 minutes daily.\n- Learn 4 basic chords first.\n- Play along with songs you like.\n- Pick songs you actually enjoy.",
     ),
     (
         "Reply in one word.", "What is 12 times 3?",
@@ -48,40 +48,28 @@ VARIATIONS = [
         "```python\n[n * n for n in range(10)]\n```",
     ),
     (
-        "Use markdown: one heading and one list of three items.", "How to stay organized as a student.",
-        "## Staying organized as a student\n- Keep one calendar for everything.\n- Do homework the day it is set.\n- Pack your bag the night before.",
+        "Answer with a markdown list of four items.", "How do I keep houseplants alive?",
+        "- Water when the top soil is dry.\n- Give them bright indirect light.\n- Repot once a year.\n- Wipe the leaves now and then.",
     ),
     (
-        "Use a ## heading and a short list of three items.", "How do I grow herbs indoors?",
-        "## Growing herbs indoors\n- A south-facing windowsill.\n- Six hours of light a day.\n- Water when the top soil is dry.",
+        "Give four numbered steps and nothing else.", "How to write email a whole team will read?",
+        "1. Open with the purpose in one sentence.\n2. List the actions with owners.\n3. Keep it under ten lines.\n4. Send it before the deadline.",
     ),
     (
-        "Answer with markdown headings for each section.", "Compare tea and coffee.",
-        "## Tea\nLess caffeine, easier on the stomach.\n\n## Coffee\nStronger and faster, but rougher on sleep.",
+        "Answer with a short intro line, then a three-item list.", "What should I pack for a beach day?",
+        "Keep it light:\n- Sunscreen.\n- Water and a snack.\n- A hat.",
     ),
     (
-        "Structure the answer: one ## heading, then ### subsections.", "How does a car engine turn fuel into motion?",
-        "## The cycle\n### Intake\nFuel and air enter the cylinder.\n### Compression\nThe piston squeezes the mix.\n### Power\nA spark ignites it and pushes the piston down.\n### Exhaust\nThe burned gases leave.",
+        "Answer with a two-item list comparing the options.", "Morning study or evening study?",
+        "- Morning: quiet mind, fewer distractions.\n- Evening: more time, tired attention.",
     ),
     (
-        "Answer with a heading for the overview and one for the steps.", "How to change a tire?",
-        "## Before you start\nPark on flat ground and use the parking brake.\n\n## The steps\n1. Loosen the bolts on the flat tire.\n2. Lift the car with the jack.\n3. Swap the tire and tighten the bolts.",
+        "Reply with a single three-item list.", "How to practice piano?",
+        "- Scales every day.\n- Hands slowly, separately.\n- Full tempo only when clean.",
     ),
     (
-        "Use markdown: two headings and one bold conclusion.", "Why is sleep important?",
-        "## Body\nSleep repairs muscles and restores energy.\n\n## Mind\nIt consolidates memories and clears fatigue.\n\n**Nothing replaces a full night of sleep.**",
-    ),
-    (
-        "Section the answer with ## headings and a closing line.", "What is machine learning?",
-        "## The idea\nPrograms learn patterns from data instead of fixed rules.\n\n## In practice\nA model is trained on examples, then predicts on new ones.\n\n## Limits\nIt is only as good as the data it saw.",
-    ),
-    (
-        "Answer with headings; end with one bold line.", "What should a beginner value in programming?",
-        "## Clarity\nReadable code beats clever code.\n\n## Repetition\nSmall exercises every day.\n\n## Debugging\nLearning to inspect what the program really does.\n\n**Building habits beats picking a language.**",
-    ),
-    (
-        "Write the answer with one ## heading per option asked.", "Which laptop for school: light or fast?",
-        "## Light\nEasy to carry all day, good for classes and notes.\n\n## Fast\nBetter for video or programming projects.\n\nFor school, a light machine wins most days.",
+        "Give a numbered list of five quick wins.", "How to keep a desk tidy?",
+        "1. Bin everything you do not need.\n2. Keep one inbox tray.\n3. Files go in folders, not piles.\n4. Charge the phone away from the desk.\n5. Reset the desk before leaving.",
     ),
 ]
 
