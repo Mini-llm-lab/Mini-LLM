@@ -30,5 +30,4 @@ def test_format_history_rejects_bad_shapes():
         format_history(None, [("q1", "a1"), ("q2", "a2")])
     with pytest.raises(ValueError):
         format_history(None, [("q1", None), ("q2", None)])
-    # a single pending turn is valid
     assert format_history(None, [("q1", None)]) == "User: q1\nAssistant:"

@@ -1,15 +1,3 @@
-"""Synthetic arithmetic and token-level skills, for the SFT extra split.
-
-Deterministic: every function takes a seed and always produces the same pairs. All
-prompts are written without separators inside numbers (3,472 is off-format), because
-the digit-split tokenizer works best on plain digit runs.
-
-Answer styles:
-- plain ops:    "347 + 512 = 859."                 (single line, ends on the result)
-- carried ops:  "3472 + 512 = 3472 + 500 = 3972, then 3972 + 12 = 3984."
-                (hard 4-5 digit additions/subtractions only: one echoed step, then the
-                result — same terminal shape as plain ops)
-"""
 import random
 
 ADD = ["What is {a} + {b}?", "what is {a} + {b}", "what's {a}+{b}", "{a} + {b}", "How much is {a} plus {b}?"]
@@ -81,7 +69,7 @@ def op_pair(rng):
     if width == 2:
         a, b = number(rng, 2), number(rng, 2)
     elif width == 3:
-        a, b = number(rng, 3), rng.randint(1, 9)          # 3-digit x 1-digit
+        a, b = number(rng, 3), rng.randint(1, 9)
     elif width == 4:
         a, b = number(rng, 4), rng.randint(1, 9)
     else:
@@ -90,7 +78,6 @@ def op_pair(rng):
 
 
 def table_pairs(seed=0):
-    """The multiplication tables 1-12 and their inverse divisions, covered exhaustively."""
     rng = random.Random(seed)
     pairs = []
     for a in range(1, TABLE_MAX + 1):
@@ -103,7 +90,6 @@ def table_pairs(seed=0):
 
 
 def synthetic_pairs(count, seed=1, table_share=0.35):
-    """A mixed pool: tables (repeated), random ops (with carried write-outs for hard ones)."""
     rng = random.Random(seed + 1)
     n_tables = int(count * table_share) // len(table_pairs(seed)) + 1
     pool = list(table_pairs(seed)) * n_tables

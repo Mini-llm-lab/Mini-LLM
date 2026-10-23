@@ -21,7 +21,6 @@ def default_system(lineage):
 
 
 def reply(model, tok, eos, dev, question, history=(), ctx=None, system=None):
-    """Answer one question, seeing up to HISTORY_TURNS answered turns before it."""
     if ctx is None:
         ctx = getattr(getattr(model, "c", None), "ctx", 512)
     history = list(history)[-HISTORY_TURNS:]

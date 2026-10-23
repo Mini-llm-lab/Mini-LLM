@@ -22,7 +22,7 @@ def check_answer(question, answer):
 
 def test_table_pairs_are_exhaustive_and_correct():
     pairs = math_data.table_pairs(0)
-    assert len(pairs) == 144 + 132  # tables 1-12 x 1-12, plus inverse divisions
+    assert len(pairs) == 144 + 132
     for question, answer in pairs:
         check_answer(question, answer)
 

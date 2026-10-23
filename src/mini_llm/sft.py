@@ -29,7 +29,6 @@ VARIATION_REPEAT = 5
 MATH_COUNT = 150_000
 SKILL_COUNT = 10_000
 GSM8K_MAX = 4000
-V2_LINEAGE = "digit32k"
 IDENTITY_LEAK = re.compile(
     r"open ?assistant|\blaion\b|chat ?gpt|openai"
     r"|as an ai( language)? model"
@@ -132,7 +131,6 @@ def gsm8k_pairs():
 
 
 def conversation_segments(system, turns):
-    """All turns are answered pairs; every answer is a supervised span."""
     segments = []
     if system:
         segments.append(("System: " + system.strip() + "\n", False))
@@ -161,7 +159,6 @@ def encode_segments(tok, segments, eos, ctx):
 
 
 def encode(name, items, tok, eos, ctx, clean=True):
-    """items: list of segment lists; returns [(ids, mask)]."""
     kept = []
     for segments in items:
         if clean:
@@ -177,20 +174,20 @@ def encode(name, items, tok, eos, ctx, clean=True):
     return kept
 
 
-def load_examples(tok, eos, ctx, v2):
+def load_examples(tok, eos, ctx, with_system):
     human, ai = [], []
     dolly_plain, dolly_context = dolly_pairs()
     no_robots, no_robots_multi = no_robots_pairs()
     oasst, oasst_multi = oasst_pairs()
     sources = {"dolly": dolly_plain, "no_robots": no_robots, "oasst2": oasst}
-    if v2:
+    if with_system:
         sources["dolly with context"] = dolly_context
     for name, fn in sources.items():
-        human += encode(name, [pair_segments(DEFAULT_SYSTEM_PROMPT if v2 else None, q, a) for q, a in fn], tok, eos, ctx)
-    if v2:
+        human += encode(name, [pair_segments(DEFAULT_SYSTEM_PROMPT if with_system else None, q, a) for q, a in fn], tok, eos, ctx)
+    if with_system:
         human += encode("gsm8k", [pair_segments(MATH_SYSTEM_PROMPT, q, a) for q, a in gsm8k_pairs()], tok, eos, ctx)
     for name, conversations in (("no_robots multi-turn", no_robots_multi), ("oasst2 multi-turn", oasst_multi)):
-        if not v2:
+        if not with_system:
             continue
         human += encode(
             name,
@@ -198,7 +195,7 @@ def load_examples(tok, eos, ctx, v2):
             tok, eos, ctx, clean=False,
         )
     for name, fn in {"alpaca": alpaca_pairs}.items():
-        ai += encode(name, [pair_segments(None if not v2 else DEFAULT_SYSTEM_PROMPT, q, a) for q, a in fn()], tok, eos, ctx)
+        ai += encode(name, [pair_segments(DEFAULT_SYSTEM_PROMPT if with_system else None, q, a) for q, a in fn()], tok, eos, ctx)
     cap = int(len(human) * AI_MAX_SHARE / (1 - AI_MAX_SHARE))
     random.Random(0).shuffle(ai)
     ai = ai[:cap]
@@ -213,18 +210,18 @@ def sft(epochs=3, base=None, resume=False, device="auto", bs=None, accum=None):
     model, cfg = load_model(base, dev)
     tok = load_tokenizer(base)
     eos = tok.token_to_id("<eos>")
-    v2 = cfg.lineage == V2_LINEAGE
+    with_system = cfg.lineage == "digit32k"
 
     n_params = sum(p.numel() for p in model.parameters())
 
-    data = load_examples(tok, eos, cfg.ctx, v2)
+    data = load_examples(tok, eos, cfg.ctx, with_system)
     random.Random(0).shuffle(data)
     val, train = data[:VAL_SIZE], data[VAL_SIZE:]
 
     extra_ident = identity_pairs(size_millions(n_params), repeat=IDENTITY_REPEAT) + arithmetic_pairs()
-    ident_system = DEFAULT_SYSTEM_PROMPT if v2 else None
+    ident_system = DEFAULT_SYSTEM_PROMPT if with_system else None
     train += encode("identity and arithmetic", [pair_segments(ident_system, q, a) for q, a in extra_ident], tok, eos, ctx, clean=False)
-    if v2:
+    if with_system:
         train += encode(
             "variations",
             [pair_segments(system, q, a) for system, q, a in variation_pairs(VARIATION_REPEAT)],

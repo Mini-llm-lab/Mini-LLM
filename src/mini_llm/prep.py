@@ -26,7 +26,6 @@ BATCH = 1_000
 
 
 def digit_pre_tokenizer():
-    """One token per digit: each digit stands alone and never merges with anything."""
     return pre_tokenizers.Sequence(
         [
             pre_tokenizers.Digits(individual_digits=True),

@@ -72,8 +72,6 @@ def validate_teacher(tcfg, cfg):
 
 
 def default_batch(dev, size="34M", ctx=512):
-    # Targets are in tokens/step (= batch * accum * ctx), ctx-independent:
-    # ctx 1024 halves accum so the 40M keeps its 131k tokens/step budget.
     if dev == "cuda":
         try:
             total = torch.cuda.get_device_properties(0).total_memory
@@ -82,7 +80,6 @@ def default_batch(dev, size="34M", ctx=512):
             batch = 32
     else:
         batch = 32
-    # Keep the per-micro-batch token count bounded so activations do not explode with ctx:
     batch = min(batch, max(1, 65536 // ctx))
     target = 131072 if size in BIG_BATCH_SIZES else 65536
     return batch, max(1, target // (batch * ctx))
