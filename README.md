@@ -6,6 +6,12 @@ tokenizer, transformer decoder architecture, pretraining and SFT, no pretrained 
 
 Training runs on NVIDIA GPUs (CUDA).
 
+The 150M **v2** (`models/digit32k/`) is the current cloud recipe: digit-split
+tokenizer, 2048-token context, system-prompt format, hybrid math / markdown /
+multi-turn SFT, ~7B-token pretraining budget — see
+[training](../Documentation/Mini-LLM/training.md) and
+[cloud GPU](../Documentation/Mini-LLM/cloud-gpu.md).
+
 > Training scale translates directly into output quality: base val loss drops from
 > 3.618 (34M, ~0.2B tokens) to 3.030 (70M, ~1.4B tokens) and to 2.941 (150M, ~4.5B
 > tokens) — larger models are markedly more fluent and better formatted. Conformance
