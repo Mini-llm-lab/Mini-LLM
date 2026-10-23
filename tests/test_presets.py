@@ -24,6 +24,8 @@ def test_preset_param_counts_frozen():
     m = LLM(get_preset("150M"))
     n = sum(p.numel() for p in m.parameters())
     assert m.c.vocab == 32768
+    assert m.c.ctx == 2048
+    assert m.c.lineage == "digit32k"
     assert 152_000_000 < n < 153_500_000, n
     del m
     gc.collect()
